@@ -11,6 +11,7 @@ import argparse
 import os
 import sys
 import time
+import random
 
 import bosdyn.client
 import bosdyn.client.lease
@@ -90,11 +91,18 @@ def hello_spot(config):
         # center of the feet. The X axis of the footprint frame points forward along
         # the robot's length, the Z axis points up aligned with gravity, and the Y
         # axis is the cross-product of the two.
-        footprint_R_body = bosdyn.geometry.EulerZXY(yaw=0.4, roll=0.0, pitch=0.0)
-        cmd = RobotCommandBuilder.synchro_stand_command(footprint_R_body=footprint_R_body)
-        command_client.robot_command(cmd)
-        robot.logger.info("Robot standing twisted.")
-        time.sleep(3)
+        while True:
+            # y = float(input("yaw >>> "))
+            # r = float(input("roll >>> "))
+            # p = float(input("pitch >>> "))
+            y = random.randrange(-1.0, 1.0)
+            r = random.randrange(-1.0, 1.0)
+            p = random.randrange(-1.0, 1.0)
+            footprint_R_body = bosdyn.geometry.EulerZXY(yaw=y, roll=r, pitch=p)
+            cmd = RobotCommandBuilder.synchro_stand_command(footprint_R_body=footprint_R_body)
+            command_client.robot_command(cmd)
+            robot.logger.info("Robot standing twisted.")
+            time.sleep(1.5)
 
         # Now tell the robot to stand taller, using the same approach of constructing
         # a command message with the RobotCommandBuilder and issuing it with
