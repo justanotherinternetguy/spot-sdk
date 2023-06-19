@@ -21,6 +21,7 @@ from bosdyn.client.image import ImageClient
 from bosdyn.client.robot_command import RobotCommandBuilder, RobotCommandClient, blocking_stand
 
 
+
 def hello_spot(config):
     """A simple example of using the Boston Dynamics API to command a Spot robot."""
 
@@ -60,6 +61,7 @@ def hello_spot(config):
     # controlling the robot, it should return the lease so other clients can
     # control it. The LeaseKeepAlive object takes care of acquiring and returning
     # the lease for us.
+
     lease_client = robot.ensure_client(bosdyn.client.lease.LeaseClient.default_service_name)
     with bosdyn.client.lease.LeaseKeepAlive(lease_client, must_acquire=True, return_at_exit=True):
         # Now, we are ready to power on the robot. This call will block until the power
@@ -91,18 +93,18 @@ def hello_spot(config):
         # center of the feet. The X axis of the footprint frame points forward along
         # the robot's length, the Z axis points up aligned with gravity, and the Y
         # axis is the cross-product of the two.
-        while True:
-            # y = float(input("yaw >>> "))
-            # r = float(input("roll >>> "))
-            # p = float(input("pitch >>> "))
-            y = random.randrange(-1.0, 1.0)
-            r = random.randrange(-1.0, 1.0)
-            p = random.randrange(-1.0, 1.0)
-            footprint_R_body = bosdyn.geometry.EulerZXY(yaw=y, roll=r, pitch=p)
-            cmd = RobotCommandBuilder.synchro_stand_command(footprint_R_body=footprint_R_body)
-            command_client.robot_command(cmd)
-            robot.logger.info("Robot standing twisted.")
-            time.sleep(1.5)
+        # while True:
+        #     # y = float(input("yaw >>> "))
+        #     # r = float(input("roll >>> "))
+        #     # p = float(input("pitch >>> "))
+        #     y = random.randrange(-1.0, 1.0)
+        #     r = random.randrange(-1.0, 1.0)
+        #     p = random.randrange(-1.0, 1.0)
+        #     footprint_R_body = bosdyn.geometry.EulerZXY(yaw=y, roll=r, pitch=p)
+        #     cmd = RobotCommandBuilder.synchro_stand_command(footprint_R_body=footprint_R_body)
+        #     command_client.robot_command(cmd)
+        #     robot.logger.info("Robot standing twisted.")
+        #     time.sleep(1.5)
 
         # Now tell the robot to stand taller, using the same approach of constructing
         # a command message with the RobotCommandBuilder and issuing it with
@@ -112,17 +114,14 @@ def hello_spot(config):
         robot.logger.info("Robot standing tall.")
         time.sleep(3)
 
-        # Capture an image.
-        # Spot has five sensors around the body. Each sensor consists of a stereo pair and a
-        # fisheye camera. The list_image_sources RPC gives a list of image sources which are
-        # available to the API client. Images are captured via calls to the get_image RPC.
-        # Images can be requested from multiple image sources in one call.
-        image_client = robot.ensure_client(ImageClient.default_service_name)
-        sources = image_client.list_image_sources()
-        image_response = image_client.get_image_from_sources(['frontleft_fisheye_image'])
-        _maybe_display_image(image_response[0].shot.image)
-        if config.save or config.save_path is not None:
-            _maybe_save_image(image_response[0].shot.image, config.save_path)
+        cm = RobotCommandBuilder.synchro_velocity_command(v_x=-0.8, v_y=0, v_rot=0) # MOVEMENT YAY
+        command_client.robot_command(command=cm, end_time_secs=time.time() + 0.7)
+        robot.logger.info("Robot moving forward.")
+        time.sleep(3)
+
+        command_client.robot_command(RobotCommandBuilder.arm_ready_command())
+        robot.logger.info("arm ready")
+        time.sleep(3)
 
         # Log a comment.
         # Comments logged via this API are written to the robots test log. This is the best way
