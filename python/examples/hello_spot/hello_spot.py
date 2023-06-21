@@ -119,44 +119,22 @@ def hello_spot(config):
         robot.logger.info("Robot standing tall.")
         time.sleep(3)
 
-#        cm = RobotCommandBuilder.synchro_velocity_command(v_x=0.8, v_y=0, v_rot=0) # MOVEMENT YAY
-#        command_client.robot_command(command=cm, end_time_secs=time.time() + 1)
-#        robot.logger.info("Robot moving forward.")
-#        time.sleep(3)
+        cm = RobotCommandBuilder.synchro_velocity_command(v_x=0.9, v_y=0, v_rot=0) # MOVEMENT YAY
+        command_client.robot_command(command=cm, end_time_secs=time.time() + 1)
+        robot.logger.info("Robot moving forward.")
+        time.sleep(3)
+
         assert robot.has_arm(), "Robot requires an arm to run this code."
 
         command_client.robot_command(RobotCommandBuilder.arm_ready_command())
         robot.logger.info("arm ready")
         time.sleep(3)
 
-#        command_client.robot_command(RobotCommandBuilder.arm_gaze_command(x=0.1, y=0, z=0, frame_name="body")) # odom, vision, body, flat_body, gpe (https://dev.bostondynamics.com/docs/concepts/geometry_and_frames)
-#        robot.logger.info("arm gazing at 0.5 0.5 0.5")
-#        time.sleep(3)
-        # VEC3 Arm test
-        #
-        # BROKEN CODE:
-        x, y, z = 0.75, 0, 0.25
-        hand_ewrt_flat_body = geometry_pb2.Vec3(x=x, y=y, z=z)
+        x, y, z = 0.5, 0.5, 0
+        command_client.robot_command(RobotCommandBuilder.arm_gaze_command(x=x, y=y, z=z, frame_name="body")) # odom, vision, body, flat_body, gpe (https://dev.bostondynamics.com/docs/concepts/geometry_and_frames)
+        robot.logger.info(f"arm gazing at {x}, {y}, {z}")
+        time.sleep(3)
 
-        qw, qx, qy, qz = 1, 0, 0, 0
-        flat_body_Q_hand = geometry_pb2.Quaternion(w=qw, x=qx, y=qy, z=qz)
-
-        flat_body_T_hand = geometry_pb2.SE3Pose(position=hand_ewrt_flat_body, rotation=flat_body_Q_hand)
-
-        robot_state = robot.command_client.get_robot_state()
-        robot.logger.info(robot_state)
-
-        odom_T_flat_body = get_a_tform_b(robot_state.kinematic_state.transforms_snapshot,
-                                         ODOM_FRAME_NAME, GRAV_ALIGNED_BODY_FRAME_NAME)
-
-        odom_T_hand = odom_T_flat_body * math_helpers.SE3Pose.from_obj(flat_body_T_hand)
-
-        # duration in seconds
-        seconds = 2
-
-        arm_command = RobotCommandBuilder.arm_pose_command(
-            odom_T_hand.x, odom_T_hand.y, odom_T_hand.z, odom_T_hand.rot.w, odom_T_hand.rot.x,
-            odom_T_hand.rot.y, odom_T_hand.rot.z, ODOM_FRAME_NAME, seconds)
 
 
         command_client.robot_command(RobotCommandBuilder.arm_stow_command())
