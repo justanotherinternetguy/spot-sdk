@@ -1,5 +1,4 @@
 # Copyright (c) 2022 Boston Dynamics, Inc.  All rights reserved.
-import math
 #
 # Downloading, reproducing, distributing or otherwise using the SDK Software
 # is subject to the terms and conditions of the Boston Dynamics Software
@@ -166,10 +165,12 @@ class FollowFiducial(object):
             time.sleep(.35)
 
         while self._attempts <= self._max_attempts:
+            bruh = False
             detected_fiducial = False
-            bboxes = None
             fiducial_rt_world = None
             if self._use_world_object_service:
+                bruh = False
+                detected_fiducial = False
                 # Get the first fiducial object Spot detects with the world object service.
                 fiducial = self.get_fiducial_objects()
                 if fiducial is not None:
@@ -178,8 +179,13 @@ class FollowFiducial(object):
                         fiducial.apriltag_properties.frame_name_fiducial).to_proto()
                     if vision_tform_fiducial is not None:
                         detected_fiducial = True
+                        bruh = True
                         fiducial_rt_world = vision_tform_fiducial.position
+                        print('send help brhu')
+
             else:
+                detected_fiducial = False
+                bboxes = None
                 # Detect the april tag in the images from Spot using the apriltag library.
                 bboxes, source_name = self.image_to_bounding_box()
                 if bboxes:
@@ -191,17 +197,20 @@ class FollowFiducial(object):
                                                           y=vision_tform_fiducial_position[1],
                                                           z=vision_tform_fiducial_position[2])
                     detected_fiducial = True
+                    print('send help')
 
-            if detected_fiducial:
+            if detected_fiducial and bruh:
                 # Go to the tag and stop within a certain distance
-                self.do_fiducial_stuff()
-                print("moved!!!")
+                self.go_to_tag()
+                print('detected')
+                detected_fiducial = False
+                bruh = False
             else:
                 print("No fiducials found")
 
-            print(self._attempts)
+            print(self._attempts, "one done")
+
             self._attempts += 1  #increment attempts at finding a fiducial
-            detected_fiducial = False
 
         # Power off at the conclusion of the example.
         if self._powered_on:
@@ -355,37 +364,11 @@ class FollowFiducial(object):
             body_tform_fiducial[0], body_tform_fiducial[1], body_tform_fiducial[2])
         return fiducial_rt_world
 
-    def do_fiducial_stuff(self):
-        cm = RobotCommandBuilder.synchro_velocity_command(v_x=0, v_y=0, v_rot=1.5) # MOVEMENT YAY
-        self._robot_command_client.robot_command(command=cm, end_time_secs=time.time() + 1)
+    def go_to_tag(self):
+        cm = RobotCommandBuilder.synchro_velocity_command(v_x=0, v_y=0, v_rot=0.7) # MOVEMENT YAY
+        self._robot_command_client.robot_command(command=cm, end_time_secs=time.time() + 0.7)
         self._robot.logger.info("Robot moving forward.")
-        time.sleep(3)
-        return
-
-    def go_to_tag(self, fiducial_rt_world):
-        """Use the position of the april tag in vision world frame and command the robot."""
-        # Compute the go-to point (offset by .5m from the fiducial position) and the heading at
-        # this point.
-        self._current_tag_world_pose, self._angle_desired = self.offset_tag_pose(
-            fiducial_rt_world, self._tag_offset)
-
-        #Command the robot to go to the tag in kinematic odometry frame
-        mobility_params = self.set_mobility_params()
-        tag_cmd = RobotCommandBuilder.synchro_se2_trajectory_point_command(
-            goal_x=self._current_tag_world_pose[0], goal_y=self._current_tag_world_pose[1],
-            goal_heading=self._angle_desired, frame_name=VISION_FRAME_NAME, params=mobility_params,
-            body_height=0.0, locomotion_hint=spot_command_pb2.HINT_AUTO)
-        end_time = 5.0
-        if self._movement_on and self._powered_on:
-            #Issue the command to the robot
-            self._robot_command_client.robot_command(lease=None, command=tag_cmd,
-                                                     end_time_secs=time.time() + end_time)
-            # #Feedback to check and wait until the robot is in the desired position or timeout
-            start_time = time.time()
-            current_time = time.time()
-            while (not self.final_state() and current_time - start_time < end_time):
-                time.sleep(.25)
-                current_time = time.time()
+        time.sleep(1)
         return
 
     def final_state(self):
