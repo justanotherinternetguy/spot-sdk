@@ -177,12 +177,20 @@ class FollowFiducial(object):
                         fiducial.transforms_snapshot, VISION_FRAME_NAME,
                         fiducial.apriltag_properties.frame_name_fiducial).to_proto()
 
-                    fiducial.acquisition_time.seconds -= 7
-                    print(f"Fiducial ID {fiducial.id}, Name: {fiducial.name}")
-                    print(f"Fiducial Detected At: {fiducial.acquisition_time.seconds}, Fiducial Execution Time: {time.time()}, Difference: {time.time() - fiducial.acquisition_time.seconds}")
-                    if vision_tform_fiducial is not None and time.time() - fiducial.acquisition_time.seconds < 2:
+                    # fiducial.acquisition_time.seconds -= 7
+                    if vision_tform_fiducial is not None:
+                        # print(f"Arbitrary ID {fiducial.id}, Name: {fiducial.name}")
+                        # print(f"Fiducial Detected At: {fiducial.acquisition_time.seconds}, Fiducial Execution Time: {time.time()}, Difference: {time.time() - fiducial.acquisition_time.seconds}")
+                        # print(f"Fiducial ID: {int(fiducial.apriltag_properties.frame_name_fiducial[9:])}")
                         detected_fiducial = True
                         fiducial_rt_world = vision_tform_fiducial.position
+
+                        # Set desired robot rotation
+                        id = int(fiducial.apriltag_properties.frame_name_fiducial[9:])
+                        print("ID", id)
+                        robot_state = get_vision_tform_body(self.robot_state.kinematic_state.transforms_snapshot)
+                        self._angle_desired = robot_state.rot.to_yaw() + (id + 1) * 45
+                        print("ANGLE:", self._angle_desired)
             else:
                 # Detect the april tag in the images from Spot using the apriltag library.
                 bboxes, source_name = self.image_to_bounding_box()
@@ -216,8 +224,14 @@ class FollowFiducial(object):
         fiducial_objects = self._world_object_client.list_world_objects(
             object_type=request_fiducials).world_objects
         if len(fiducial_objects) > 0:
-            # Return the first detected fiducial.
-            return fiducial_objects[0]
+            for f in fiducial_objects:
+                f.acquisition_time.seconds -= 7
+                if time.time() - f.acquisition_time.seconds < 2:
+                    print(f"Arbitrary ID {f.id}, Name: {f.name}")
+                    print(f"Fiducial Detected At: {f.acquisition_time.seconds}, Fiducial Execution Time: {time.time()}, Difference: {time.time() - f.acquisition_time.seconds}")
+                    print(f"Fiducial ID: {int(f.apriltag_properties.frame_name_fiducial[9:])}")
+                    # Return the first detected fiducial (That is within a 2 second range).
+                    return fiducial_objects[0]
         # Return none if no fiducials are found.
         return None
 
@@ -361,20 +375,17 @@ class FollowFiducial(object):
         """Use the position of the april tag in vision world frame and command the robot."""
         # Compute the go-to point (offset by .5m from the fiducial position) and the heading at
         # this point.
-        self._current_tag_world_pose, self._angle_desired = self.offset_tag_pose(
+        self._current_tag_world_pose, _ = self.offset_tag_pose(
             fiducial_rt_world, self._tag_offset)
 
         #Command the robot to go to the tag in kinematic odometry frame
         mobility_params = self.set_mobility_params()
-
-        robot_state = get_vision_tform_body(self.robot_state.kinematic_state.transforms_snapshot)
         # tag_cmd = RobotCommandBuilder.synchro_se2_trajectory_point_command(
         #     goal_x=self._current_tag_world_pose[0], goal_y=self._current_tag_world_pose[1],
         #     goal_heading=self._angle_desired, frame_name=VISION_FRAME_NAME, params=mobility_params,
         #     body_height=0.0, locomotion_hint=spot_command_pb2.HINT_AUTO)
 
-        self._angle_desired = robot_state.rot.to_yaw()+30
-
+        robot_state = get_vision_tform_body(self.robot_state.kinematic_state.transforms_snapshot)
         tag_cmd = RobotCommandBuilder.synchro_se2_trajectory_point_command(
             goal_x=robot_state.x, goal_y=robot_state.y,
             goal_heading=self._angle_desired, frame_name=VISION_FRAME_NAME, params=mobility_params,
