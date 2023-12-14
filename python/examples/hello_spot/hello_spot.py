@@ -102,41 +102,38 @@ def hello_spot(config):
             # p1 is your point, p2 is other point
             # First value of coordinate needs to be x value and second value needs to be y value
             angle = math.degrees(math.atan2(p2[1] - p1[1], p2[0] - p1[0]))
-            if angle < 0:
-                angle += 360
             return angle
 
-        def minAngleBetweenAngles(a1, a2):
-            # Angles must be between 0 - 359, a1 is your angle
-            # Returned sign indicates whether the shortest angle is clockwise (+) or ccw (-)
 
-            largerAngle = max(a1, a2)
-            smallerAngle = min(a1, a2)
-            dist = largerAngle - smallerAngle
-            sign = 1
-            if dist > 180:
-                sign *= -1
-                dist = 360 - dist
-            if largerAngle == a1:
-                sign *= -1
-
-            return dist * sign
-
-        # Movement to coords with first angle turn
         while True:
             x = float(input("Relative X Position: "))
             y = float(input("Relative Y Position: "))
-            angle = calculateAngle((0, 0), (x, y))
-            shortest_angle_in_radians = math.radians(minAngleBetweenAngles(0, angle))
-            velocity = float(input("Velocity X (m/s): "))
             rotation_velocity = math.radians(float(input("Rotation Velocity (degrees/s): ")))
+            shortest_angle_in_radians = math.radians(calculateAngle((0, 0), (x, y)))
             rotation_velocity = math.copysign(rotation_velocity, shortest_angle_in_radians)
-            distance = math.dist((0, 0), (x, y))
             cmd_rotate = RobotCommandBuilder.synchro_velocity_command(v_x=0, v_y=0, v_rot=rotation_velocity)
+
+            # If angle greater than 90 degrees, first turn 90 degrees then turn the rest of the way
+            if abs(shortest_angle_in_radians) > math.pi/2:
+                ninetyDeg_in_radians = math.copysign((math.pi / 2), shortest_angle_in_radians)
+                first_turn_duration = ninetyDeg_in_radians / rotation_velocity
+                command_client.robot_command(command=cmd_rotate, end_time_secs=time.time() + first_turn_duration)
+                time.sleep(first_turn_duration)
+                shortest_angle_in_radians -= ninetyDeg_in_radians
+
+            time.sleep(0.1)
+            # Turn to angle
+            turn_duration = shortest_angle_in_radians/rotation_velocity
+            command_client.robot_command(command=cmd_rotate, end_time_secs=time.time() + turn_duration)
+            time.sleep(turn_duration)
+
+            velocity = float(input("Velocity X (m/s): "))
+            distance = math.dist((0, 0), (x, y))
+            # Move to point
             cmd_move = RobotCommandBuilder.synchro_velocity_command(v_x=velocity, v_y=0, v_rot=0)
-            command_client.robot_command(command=cmd_rotate, end_time_secs=time.time() + shortest_angle_in_radians/rotation_velocity)
-            time.sleep(shortest_angle_in_radians/rotation_velocity)
-            command_client.robot_command(command=cmd_move, end_time_secs=time.time() + distance/velocity)
+            move_duration = distance/velocity
+            command_client.robot_command(command=cmd_move, end_time_secs=time.time() + move_duration)
+
             robot.logger.info("Finished Moving")
             time.sleep(1)
 
