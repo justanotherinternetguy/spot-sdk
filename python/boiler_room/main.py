@@ -10,6 +10,8 @@ import bosdyn.client
 import bosdyn.client.lease
 import bosdyn.client.util
 import bosdyn.geometry
+from bosdyn.api import basic_command_pb2, mobility_command_pb2, robot_command_pb2, power_pb2
+from bosdyn.api.mission import nodes_pb2
 from bosdyn.client.image import ImageClient
 from bosdyn.client.robot_command import RobotCommandBuilder, RobotCommandClient, blocking_stand
 

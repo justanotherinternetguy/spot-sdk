@@ -11,6 +11,7 @@ import argparse
 import os
 import sys
 import time
+import math
 import random
 
 import bosdyn.client
@@ -26,7 +27,7 @@ from bosdyn.client.robot_command import (RobotCommandBuilder, RobotCommandClient
 from bosdyn.client.robot_state import RobotStateClient
 
 
-
+# C:\Users\alexr\AppData\Local\Programs\Python\Python311\python.exe python\examples\hello_spot\hello_spot.py 192.168.80.3
 def hello_spot(config):
     """A simple example of using the Boston Dynamics API to command a Spot robot."""
 
@@ -87,29 +88,69 @@ def hello_spot(config):
         robot.logger.info("Robot standing.")
         time.sleep(3)
 
-        # Tell the robot to stand in a twisted position.
-        #
-        # The RobotCommandBuilder constructs command messages, which are then
-        # issued to the robot using "robot_command" on the command client.
-        #
-        # In this example, the RobotCommandBuilder generates a stand command
-        # message with a non-default rotation in the footprint frame. The footprint
-        # frame is a gravity aligned frame with its origin located at the geometric
-        # center of the feet. The X axis of the footprint frame points forward along
-        # the robot's length, the Z axis points up aligned with gravity, and the Y
-        # axis is the cross-product of the two.
+
+
         # while True:
-        #     # y = float(input("yaw >>> "))
-        #     # r = float(input("roll >>> "))
-        #     # p = float(input("pitch >>> "))
-        #     y = random.randrange(-1.0, 1.0)
-        #     r = random.randrange(-1.0, 1.0)
-        #     p = random.randrange(-1.0, 1.0)
-        #     footprint_R_body = bosdyn.geometry.EulerZXY(yaw=y, roll=r, pitch=p)
-        #     cmd = RobotCommandBuilder.synchro_stand_command(footprint_R_body=footprint_R_body)
-        #     command_client.robot_command(cmd)
-        #     robot.logger.info("Robot standing twisted.")
-        #     time.sleep(1.5)
+        #     distance = float(input("Distance (meters): "))
+        #     velocity = float(input("Velocity (m/s): "))
+        #     cmd = RobotCommandBuilder.synchro_velocity_command(v_x=velocity, v_y=0, v_rot=0)
+        #     command_client.robot_command(command=cmd, end_time_secs=time.time() + distance / velocity)
+        #     robot.logger.info("Finished Moving")
+        #     time.sleep(1)
+
+        def calculateAngle(p1, p2):
+            # p1 is your point, p2 is other point
+            # First value of coordinate needs to be x value and second value needs to be y value
+            angle = math.degrees(math.atan2(p2[1] - p1[1], p2[0] - p1[0]))
+            if angle < 0:
+                angle += 360
+            return angle
+
+        def minAngleBetweenAngles(a1, a2):
+            # Angles must be between 0 - 359, a1 is your angle
+            # Returned sign indicates whether the shortest angle is clockwise (+) or ccw (-)
+
+            largerAngle = max(a1, a2)
+            smallerAngle = min(a1, a2)
+            dist = largerAngle - smallerAngle
+            sign = 1
+            if dist > 180:
+                sign *= -1
+                dist = 360 - dist
+            if largerAngle == a1:
+                sign *= -1
+
+            return dist * sign
+
+        # Movement to coords with first angle turn
+        while True:
+            x = float(input("Relative X Position: "))
+            y = float(input("Relative Y Position: "))
+            angle = calculateAngle((0, 0), (x, y))
+            shortest_angle_in_radians = math.radians(minAngleBetweenAngles(0, angle))
+            velocity = float(input("Velocity X (m/s): "))
+            rotation_velocity = math.radians(float(input("Rotation Velocity (degrees/s): ")))
+            rotation_velocity = math.copysign(rotation_velocity, shortest_angle_in_radians)
+            distance = math.dist((0, 0), (x, y))
+            cmd_rotate = RobotCommandBuilder.synchro_velocity_command(v_x=0, v_y=0, v_rot=rotation_velocity)
+            cmd_move = RobotCommandBuilder.synchro_velocity_command(v_x=velocity, v_y=0, v_rot=0)
+            command_client.robot_command(command=cmd_rotate, end_time_secs=time.time() + shortest_angle_in_radians/rotation_velocity)
+            time.sleep(shortest_angle_in_radians/rotation_velocity)
+            command_client.robot_command(command=cmd_move, end_time_secs=time.time() + distance/velocity)
+            robot.logger.info("Finished Moving")
+            time.sleep(1)
+
+        # Movement to coords with both types of motion
+        # while True:
+        #     x = float(input("Relative X Position: "))
+        #     y = float(input("Relative Y Position: "))
+        #     velocity = float(input("Velocity (m/s): "))
+        #     cmd_x = RobotCommandBuilder.synchro_velocity_command(v_x=velocity, v_y=0, v_rot=0)
+        #     cmd_y = RobotCommandBuilder.synchro_velocity_command(v_x=0, v_y=velocity, v_rot=0)
+        #     cmd = RobotCommandBuilder.build_synchro_command(cmd_y, cmd_x)
+        #     command_client.robot_command(command=cmd, end_time_secs=time.time() + max(x/velocity, y/velocity))
+        #     robot.logger.info("Finished Moving")
+        #     time.sleep(1)
 
         # Now tell the robot to stand taller, using the same approach of constructing
         # a command message with the RobotCommandBuilder and issuing it with
