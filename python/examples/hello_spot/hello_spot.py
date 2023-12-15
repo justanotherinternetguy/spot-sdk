@@ -106,8 +106,8 @@ def hello_spot(config):
 
 
         while True:
-            x = float(input("Relative X Position: "))
-            y = float(input("Relative Y Position: "))
+            x = float(input("Move to: Relative X Position (meters): "))
+            y = float(input("Move to: Relative Y Position (meters): "))
             rotation_velocity = math.radians(float(input("Rotation Velocity (degrees/s): ")))
             shortest_angle_in_radians = math.radians(calculateAngle((0, 0), (x, y)))
             rotation_velocity = math.copysign(rotation_velocity, shortest_angle_in_radians)
@@ -127,11 +127,12 @@ def hello_spot(config):
             command_client.robot_command(command=cmd_rotate, end_time_secs=time.time() + turn_duration)
             time.sleep(turn_duration)
 
-            velocity = float(input("Velocity X (m/s): "))
+            # velocity = float(input("Velocity X (m/s): ")) # use line below
+            translational_velocity = float(input("Translational Velocity (movement x, y) (m/s): "))
             distance = math.dist((0, 0), (x, y))
             # Move to point
-            cmd_move = RobotCommandBuilder.synchro_velocity_command(v_x=velocity, v_y=0, v_rot=0)
-            move_duration = distance/velocity
+            cmd_move = RobotCommandBuilder.synchro_velocity_command(v_x=translational_velocity, v_y=0, v_rot=0)
+            move_duration = distance/translational_velocity
             command_client.robot_command(command=cmd_move, end_time_secs=time.time() + move_duration)
 
             robot.logger.info("Finished Moving")
