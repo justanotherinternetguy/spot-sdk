@@ -104,7 +104,7 @@ def hello_spot(config):
             angle = math.degrees(math.atan2(p2[1] - p1[1], p2[0] - p1[0]))
             return angle
 
-        """
+"""
         while True:
             x = float(input("Move to: Relative X Position (meters): "))
             y = float(input("Move to: Relative Y Position (meters): "))
@@ -139,40 +139,26 @@ def hello_spot(config):
             """
 
         # Movement to coords with both types of motion
-        while True:
-            x = float(input("Relative X Position: "))
-            y = float(input("Relative Y Position: "))
-            x_velocity = float(input("X Velocity (m/s): "))
-            y_velocity = float(input("Y Velocity (m/s): "))
-
-            cmd_x = RobotCommandBuilder.synchro_velocity_command(v_x=x_velocity, v_y=0, v_rot=0)
-            cmd_y = RobotCommandBuilder.synchro_velocity_command(v_x=0, v_y=y_velocity, v_rot=0)
-            command_client.robot_command(command=cmd_x, end_time_secs=time.time() + x/x_velocity)
-            command_client.robot_command(command=cmd_y, end_time_secs=time.time() + y/y_velocity)
-            robot.logger.info("Finished Moving")
-            time.sleep(1)
+        # while True:
+        #     x = float(input("Relative X Position: "))
+        #     y = float(input("Relative Y Position: "))
+        #     velocity = float(input("Velocity (m/s): "))
+        #     cmd_x = RobotCommandBuilder.synchro_velocity_command(v_x=velocity, v_y=0, v_rot=0)
+        #     cmd_y = RobotCommandBuilder.synchro_velocity_command(v_x=0, v_y=velocity, v_rot=0)
+        #     cmd = RobotCommandBuilder.build_synchro_command(cmd_y, cmd_x)
+        #     command_client.robot_command(command=cmd, end_time_secs=time.time() + max(x/velocity, y/velocity))
+        #     robot.logger.info("Finished Moving")
+        #     time.sleep(1)
 
         # Now tell the robot to stand taller, using the same approach of constructing
         # a command message with the RobotCommandBuilder and issuing it with
         # robot_command.
-        """
-        while True:
-            y = float(input("yaw >>> "))
-            r = float(input("roll >>> "))
-            p = float(input("pitch >>> "))
-            footprint_R_body = bosdyn.geometry.EulerZXY(yaw=y, roll=r, pitch=p)
-            cmd = RobotCommandBuilder.synchro_stand_command(footprint_R_body=footprint_R_body)
-            command_client.robot_command(cmd)
-            robot.logger.info("twisted")
-            time.sleep(1)
-        """
-
         cmd = RobotCommandBuilder.synchro_stand_command(body_height=0.1)
         command_client.robot_command(cmd)
         robot.logger.info("Robot standing tall.")
         time.sleep(3)
 
-        cm = RobotCommandBuilder.synchro_velocity_command(v_x=0.6, v_y=0, v_rot=0) # MOVEMENT YAY
+        cm = RobotCommandBuilder.synchro_velocity_command(v_x=0.9, v_y=0, v_rot=0) # MOVEMENT YAY
         command_client.robot_command(command=cm, end_time_secs=time.time() + 1)
         robot.logger.info("Robot moving forward.")
         time.sleep(3)
