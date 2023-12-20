@@ -1,4 +1,4 @@
-# Copyright (c) 2023 Boston Dynamics, Inc.  All rights reserved.
+# Copyright (c) 2022 Boston Dynamics, Inc.  All rights reserved.
 #
 # Downloading, reproducing, distributing or otherwise using the SDK Software
 # is subject to the terms and conditions of the Boston Dynamics Software
@@ -6,25 +6,6 @@
 
 """Tutorial to show how to use Spot's arm.
 """
-import argparse
-import sys
-import time
-
-import cv2
-import numpy as np
-
-import bosdyn.client
-import bosdyn.client.estop
-import bosdyn.client.lease
-import bosdyn.client.util
-from bosdyn.api import estop_pb2, geometry_pb2, image_pb2, manipulation_api_pb2
-from bosdyn.client.estop import EstopClient
-from bosdyn.client.frame_helpers import VISION_FRAME_NAME, get_vision_tform_body, math_helpers
-from bosdyn.client.image import ImageClient
-from bosdyn.client.manipulation_api_client import ManipulationApiClient
-from bosdyn.client.robot_command import RobotCommandClient, blocking_stand
-from bosdyn.client.robot_state import RobotStateClient
-
 import argparse
 import sys
 import time
@@ -42,8 +23,17 @@ from bosdyn.client.robot_command import (RobotCommandBuilder, RobotCommandClient
 from bosdyn.client.robot_state import RobotStateClient
 from bosdyn.util import duration_to_seconds
 
-g_image_click = None
-g_image_display = None
+
+def verify_estop(robot):
+    """Verify the robot is not estopped"""
+
+    client = robot.ensure_client(EstopClient.default_service_name)
+    if client.get_status().stop_level != estop_pb2.ESTOP_LEVEL_NONE:
+        error_message = "Robot is estopped. Please use an external E-Stop client, such as the" \
+        " estop SDK example, to configure E-Stop."
+        robot.logger.error(error_message)
+        raise Exception(error_message)
+
 
 def make_robot_command(arm_joint_traj):
     """ Helper function to create a RobotCommand from an ArmJointTrajectory.
@@ -72,207 +62,6 @@ def print_feedback(feedback_resp, logger):
         pos_str = f'sh0 = {pos.sh0.value:.3f}, sh1 = {pos.sh1.value:.3f}, el0 = {pos.el0.value:.3f}, el1 = {pos.el1.value:.3f}, wr0 = {pos.wr0.value:.3f}, wr1 = {pos.wr1.value:.3f}'
         logger.info(f'    {idx}: {pos_str}')
     return duration_to_seconds(joint_move_feedback.time_to_goal)
-
-def verify_estop(robot):
-    """Verify the robot is not estopped"""
-
-    client = robot.ensure_client(EstopClient.default_service_name)
-    if client.get_status().stop_level != estop_pb2.ESTOP_LEVEL_NONE:
-        error_message = 'Robot is estopped. Please use an external E-Stop client, such as the' \
-                        ' estop SDK example, to configure E-Stop.'
-        robot.logger.error(error_message)
-        raise Exception(error_message)
-
-
-def arm_object_grasp(config):
-    """A simple example of using the Boston Dynamics API to command Spot's arm."""
-
-    # See hello_spot.py for an explanation of these lines.
-    bosdyn.client.util.setup_logging(config.verbose)
-
-    sdk = bosdyn.client.create_standard_sdk('ArmObjectGraspClient')
-    robot = sdk.create_robot(config.hostname)
-    bosdyn.client.util.authenticate(robot)
-    robot.time_sync.wait_for_sync()
-
-    assert robot.has_arm(), 'Robot requires an arm to run this example.'
-
-    # Verify the robot is not estopped and that an external application has registered and holds
-    # an estop endpoint.
-    verify_estop(robot)
-
-    lease_client = robot.ensure_client(bosdyn.client.lease.LeaseClient.default_service_name)
-    robot_state_client = robot.ensure_client(RobotStateClient.default_service_name)
-    image_client = robot.ensure_client(ImageClient.default_service_name)
-
-    manipulation_api_client = robot.ensure_client(ManipulationApiClient.default_service_name)
-
-    with bosdyn.client.lease.LeaseKeepAlive(lease_client, must_acquire=True, return_at_exit=True):
-        # Now, we are ready to power on the robot. This call will block until the power
-        # is on. Commands would fail if this did not happen. We can also check that the robot is
-        # powered at any point.
-        robot.logger.info('Powering on robot... This may take a several seconds.')
-        robot.power_on(timeout_sec=20)
-        assert robot.is_powered_on(), 'Robot power on failed.'
-        robot.logger.info('Robot powered on.')
-
-        # Tell the robot to stand up. The command service is used to issue commands to a robot.
-        # The set of valid commands for a robot depends on hardware configuration. See
-        # RobotCommandBuilder for more detailed examples on command building. The robot
-        # command service requires timesync between the robot and the client.
-        robot.logger.info('Commanding robot to stand...')
-        command_client = robot.ensure_client(RobotCommandClient.default_service_name)
-        blocking_stand(command_client, timeout_sec=10)
-        robot.logger.info('Robot standing.')
-
-        # Take a picture with a camera
-        robot.logger.info('Getting an image from: %s', config.image_source)
-        image_responses = image_client.get_image_from_sources([config.image_source])
-
-        if len(image_responses) != 1:
-            print(f'Got invalid number of images: {len(image_responses)}')
-            print(image_responses)
-            assert False
-
-        image = image_responses[0]
-        if image.shot.image.pixel_format == image_pb2.Image.PIXEL_FORMAT_DEPTH_U16:
-            dtype = np.uint16
-        else:
-            dtype = np.uint8
-        img = np.fromstring(image.shot.image.data, dtype=dtype)
-        if image.shot.image.format == image_pb2.Image.FORMAT_RAW:
-            img = img.reshape(image.shot.image.rows, image.shot.image.cols)
-        else:
-            img = cv2.imdecode(img, -1)
-
-        # Show the image to the user and wait for them to click on a pixel
-        robot.logger.info('Click on an object to start grasping...')
-        image_title = 'Click to grasp'
-        cv2.namedWindow(image_title)
-        cv2.setMouseCallback(image_title, cv_mouse_callback)
-
-        global g_image_click, g_image_display
-        g_image_display = img
-        cv2.imshow(image_title, g_image_display)
-        while g_image_click is None:
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord('q') or key == ord('Q'):
-                # Quit
-                print('"q" pressed, exiting.')
-                exit(0)
-
-        robot.logger.info(
-            f'Picking object at image location ({g_image_click[0]}, {g_image_click[1]})')
-        robot.logger.info(f'Picking object at image location (%s, %s)', g_image_click[0],
-                          g_image_click[1])
-
-        pick_vec = geometry_pb2.Vec2(x=g_image_click[0], y=g_image_click[1])
-
-        # Build the proto
-        grasp = manipulation_api_pb2.PickObjectInImage(
-            pixel_xy=pick_vec, transforms_snapshot_for_camera=image.shot.transforms_snapshot,
-            frame_name_image_sensor=image.shot.frame_name_image_sensor,
-            camera_model=image.source.pinhole)
-
-        # Optionally add a grasp constraint.  This lets you tell the robot you only want top-down grasps or side-on grasps.
-        #        add_grasp_constraint(config, grasp, robot_state_client)
-
-        # Ask the robot to pick up the object
-        grasp_request = manipulation_api_pb2.ManipulationApiRequest(pick_object_in_image=grasp)
-
-        # Send the request
-        cmd_response = manipulation_api_client.manipulation_api_command(
-            manipulation_api_request=grasp_request)
-
-        # Get feedback from the robot
-        while True:
-            feedback_request = manipulation_api_pb2.ManipulationApiFeedbackRequest(
-                manipulation_cmd_id=cmd_response.manipulation_cmd_id)
-
-            # Send the request
-            response = manipulation_api_client.manipulation_api_feedback_command(
-                manipulation_api_feedback_request=feedback_request)
-
-            print(
-                f'Current state: {manipulation_api_pb2.ManipulationFeedbackState.Name(response.current_state)}'
-            )
-
-            if response.current_state == manipulation_api_pb2.MANIP_STATE_GRASP_SUCCEEDED or response.current_state == manipulation_api_pb2.MANIP_STATE_GRASP_FAILED:
-                break
-
-            time.sleep(0.25)
-
-        robot.logger.info('Finished grasp.')
-        time.sleep(1.0)
-
-        # Example 1: issue a single point trajectory without a time_since_reference in order to perform
-        # a minimum time joint move to the goal obeying the default acceleration and velocity limits.
-        sh0 = 0
-        sh1 = 0
-        el0 = -0.6
-        el1 = 0
-        wr0 = -0.6
-        wr1 = 0
-        max_vel = wrappers_pb2.DoubleValue(value=3)
-        max_acc = wrappers_pb2.DoubleValue(value=7)
-
-        traj_point = RobotCommandBuilder.create_arm_joint_trajectory_point(
-            sh0, sh1, el0, el1, wr0, wr1)
-
-        arm_joint_traj = arm_command_pb2.ArmJointTrajectory(points=[traj_point],
-                                                            maximum_velocity=max_vel,
-                                                            maximum_acceleration=max_acc)
-        # Make a RobotCommand
-        command = make_robot_command(arm_joint_traj)
-
-        # Send the request
-        cmd_id = command_client.robot_command(command)
-
-        open = RobotCommandBuilder.claw_gripper_open_command()
-        block_until_arm_arrives(command_client, cmd_id, 1.0)
-        o_i = command_client.robot_command(open)
-        """
-        start_time = time.time()
-        end_time = start_time + 5.0
-        
-
-        while time.time() < end_time:
-            cmd_status = command_client.robot_command_feedback_async(cmd_id)
-            robot.logger.info("TEST")
-            time.sleep(0.1)  # wait 100ms before the next checkelse:
-        """
-
-        """
-        # Here we wait till the future is done (Method: Check-until-done).
-        check_until_done_future = robot_state_client.get_robot_state_async()
-        start_time = time.time()
-        end_time = start_time + 0.7
-        x = 0
-        while not check_until_done_future.done():
-            print('Check_until_done_future: not finished yet.')
-            if x == 50:
-                command_client.robot_command_async(open)
-            time.sleep(0.01)
-            x+=1
-        print('Check_until_done succeeded.')
-        """
-
-
-        # Query for feedback to determine how long the goto will take.
-        #        feedback_resp = command_client.robot_command_feedback(cmd_id)
-        #        robot.logger.info("Feedback for Example 1: single point goto")
-        time.sleep(4)
-
-
-        robot.logger.info('Sitting down and turning off.')
-
-        # Power the robot off. By specifying "cut_immediately=False", a safe power off command
-        # is issued to the robot. This will attempt to sit the robot before powering off.
-        robot.power_off(cut_immediately=False, timeout_sec=20)
-        assert not robot.is_powered_on(), 'Robot power off failed.'
-        robot.logger.info('Robot safely powered off.')
-
-
 def cv_mouse_callback(event, x, y, flags, param):
     global g_image_click, g_image_display
     clone = g_image_display.copy()
@@ -368,50 +157,198 @@ def add_grasp_constraint(config, grasp, robot_state_client):
         constraint.squeeze_grasp.SetInParent()
 
 
+
+def joint_move_example(config):
+    """A simple example of using the Boston Dynamics API to command Spot's arm to perform joint moves."""
+
+    # See hello_spot.py for an explanation of these lines.
+    bosdyn.client.util.setup_logging(config.verbose)
+
+    sdk = bosdyn.client.create_standard_sdk('ArmJointMoveClient')
+    robot = sdk.create_robot(config.hostname)
+    bosdyn.client.util.authenticate(robot)
+    robot.time_sync.wait_for_sync()
+
+    assert robot.has_arm(), "Robot requires an arm to run this example."
+
+    # Verify the robot is not estopped and that an external application has registered and holds
+    # an estop endpoint.
+    verify_estop(robot)
+
+    robot_state_client = robot.ensure_client(RobotStateClient.default_service_name)
+
+    lease_client = robot.ensure_client(bosdyn.client.lease.LeaseClient.default_service_name)
+    with bosdyn.client.lease.LeaseKeepAlive(lease_client, must_acquire=True, return_at_exit=True):
+        # Now, we are ready to power on the robot. This call will block until the power
+        # is on. Commands would fail if this did not happen. We can also check that the robot is
+        # powered at any point.
+        robot.logger.info("Powering on robot... This may take a several seconds.")
+        robot.power_on(timeout_sec=20)
+        assert robot.is_powered_on(), "Robot power on failed."
+        robot.logger.info("Robot powered on.")
+
+        # Tell the robot to stand up. The command service is used to issue commands to a robot.
+        # The set of valid commands for a robot depends on hardware configuration. See
+        # RobotCommandBuilder for more detailed examples on command building. The robot
+        # command service requires timesync between the robot and the client.
+        robot.logger.info("Commanding robot to stand...")
+        command_client = robot.ensure_client(RobotCommandClient.default_service_name)
+        blocking_stand(command_client, timeout_sec=10)
+        robot.logger.info("Robot standing.")
+
+
+
+        # Take a picture with a camera
+        robot.logger.info('Getting an image from: %s', config.image_source)
+        image_responses = image_client.get_image_from_sources([config.image_source])
+
+        if len(image_responses) != 1:
+            print(f'Got invalid number of images: {len(image_responses)}')
+            print(image_responses)
+            assert False
+
+        image = image_responses[0]
+        if image.shot.image.pixel_format == image_pb2.Image.PIXEL_FORMAT_DEPTH_U16:
+            dtype = np.uint16
+        else:
+            dtype = np.uint8
+        img = np.fromstring(image.shot.image.data, dtype=dtype)
+        if image.shot.image.format == image_pb2.Image.FORMAT_RAW:
+            img = img.reshape(image.shot.image.rows, image.shot.image.cols)
+        else:
+            img = cv2.imdecode(img, -1)
+
+        # Show the image to the user and wait for them to click on a pixel
+        robot.logger.info('Click on an object to start grasping...')
+        image_title = 'Click to grasp'
+        cv2.namedWindow(image_title)
+        cv2.setMouseCallback(image_title, cv_mouse_callback)
+
+        global g_image_click, g_image_display
+        g_image_display = img
+        cv2.imshow(image_title, g_image_display)
+        while g_image_click is None:
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q') or key == ord('Q'):
+                # Quit
+                print('"q" pressed, exiting.')
+                exit(0)
+
+        robot.logger.info(
+            f'Picking object at image location ({g_image_click[0]}, {g_image_click[1]})')
+        robot.logger.info(f'Picking object at image location (%s, %s)', g_image_click[0],
+                          g_image_click[1])
+
+        pick_vec = geometry_pb2.Vec2(x=g_image_click[0], y=g_image_click[1])
+
+        # Build the proto
+        grasp = manipulation_api_pb2.PickObjectInImage(
+            pixel_xy=pick_vec, transforms_snapshot_for_camera=image.shot.transforms_snapshot,
+            frame_name_image_sensor=image.shot.frame_name_image_sensor,
+            camera_model=image.source.pinhole)
+
+        # Optionally add a grasp constraint.  This lets you tell the robot you only want top-down grasps or side-on grasps.
+        add_grasp_constraint(config, grasp, robot_state_client)
+
+        # Ask the robot to pick up the object
+        grasp_request = manipulation_api_pb2.ManipulationApiRequest(pick_object_in_image=grasp)
+
+        # Send the request
+        cmd_response = manipulation_api_client.manipulation_api_command(
+            manipulation_api_request=grasp_request)
+
+        # Get feedback from the robot
+        while True:
+            feedback_request = manipulation_api_pb2.ManipulationApiFeedbackRequest(
+                manipulation_cmd_id=cmd_response.manipulation_cmd_id)
+
+            # Send the request
+            response = manipulation_api_client.manipulation_api_feedback_command(
+                manipulation_api_feedback_request=feedback_request)
+
+            print(
+                f'Current state: {manipulation_api_pb2.ManipulationFeedbackState.Name(response.current_state)}'
+            )
+
+            if response.current_state == manipulation_api_pb2.MANIP_STATE_GRASP_SUCCEEDED or response.current_state == manipulation_api_pb2.MANIP_STATE_GRASP_FAILED:
+                break
+
+            time.sleep(0.25)
+
+        robot.logger.info('Finished grasp.')
+        time.sleep(4.0)
+
+
+        # Example 1: issue a single point trajectory without a time_since_reference in order to perform
+        # a minimum time joint move to the goal obeying the default acceleration and velocity limits.
+        sh0 = 0
+        sh1 = -1
+        el0 = -1
+        el1 = 0
+        wr0 = -1
+        wr1 = 0
+        max_vel = wrappers_pb2.DoubleValue(value=3)
+        max_acc = wrappers_pb2.DoubleValue(value=7)
+
+        traj_point = RobotCommandBuilder.create_arm_joint_trajectory_point(
+            sh0, sh1, el0, el1, wr0, wr1)
+
+        arm_joint_traj = arm_command_pb2.ArmJointTrajectory(points=[traj_point],
+                                                            maximum_velocity=max_vel,
+                                                            maximum_acceleration=max_acc)
+        # Make a RobotCommand
+        command = make_robot_command(arm_joint_traj)
+
+        # Send the request
+        cmd_id = command_client.robot_command_async(command)
+        """
+        start_time = time.time()
+        end_time = start_time + 5.0
+        
+
+        while time.time() < end_time:
+            cmd_status = command_client.robot_command_feedback_async(cmd_id)
+            robot.logger.info("TEST")
+            time.sleep(0.1)  # wait 100ms before the next checkelse:
+        """
+        # Here we wait till the future is done (Method: Check-until-done).
+        check_until_done_future = robot_state_client.get_robot_state_async()
+        while not check_until_done_future.done():
+            print('Check_until_done_future: not finished yet.')
+            time.sleep(0.01)
+        print('Check_until_done succeeded.')
+        if print_results:
+            print(check_until_done_future.result())
+
+
+        # Query for feedback to determine how long the goto will take.
+        #        feedback_resp = command_client.robot_command_feedback(cmd_id)
+        #        robot.logger.info("Feedback for Example 1: single point goto")
+        time.sleep(4)
+
+
+
+        # Power the robot off. By specifying "cut_immediately=False", a safe power off command
+        # is issued to the robot. This will attempt to sit the robot before powering off.
+        robot.power_off(cut_immediately=False, timeout_sec=20)
+        assert not robot.is_powered_on(), "Robot power off failed."
+        robot.logger.info("Robot safely powered off.")
+
+
 def main(argv):
     """Command line interface."""
     parser = argparse.ArgumentParser()
     bosdyn.client.util.add_base_arguments(parser)
-    parser.add_argument('-i', '--image-source', help='Get image from source',
-                        default='frontleft_fisheye_image')
-    parser.add_argument('-t', '--force-top-down-grasp',
-                        help='Force the robot to use a top-down grasp (vector_alignment demo)',
-                        action='store_true')
-    parser.add_argument('-f', '--force-horizontal-grasp',
-                        help='Force the robot to use a horizontal grasp (vector_alignment demo)',
-                        action='store_true')
-    parser.add_argument(
-        '-r', '--force-45-angle-grasp',
-        help='Force the robot to use a 45 degree angled down grasp (rotation_with_tolerance demo)',
-        action='store_true')
-    parser.add_argument('-s', '--force-squeeze-grasp',
-                        help='Force the robot to use a squeeze grasp', action='store_true')
     options = parser.parse_args(argv)
-
-    num = 0
-    if options.force_top_down_grasp:
-        num += 1
-    if options.force_horizontal_grasp:
-        num += 1
-    if options.force_45_angle_grasp:
-        num += 1
-    if options.force_squeeze_grasp:
-        num += 1
-
-    if num > 1:
-        print('Error: cannot force more than one type of grasp.  Choose only one.')
-        sys.exit(1)
-
     try:
-        arm_object_grasp(options)
+        joint_move_example(options)
         return True
     except Exception as exc:  # pylint: disable=broad-except
         logger = bosdyn.client.util.get_logger()
-        logger.exception('Threw an exception')
+        logger.exception("Threw an exception")
         return False
 
 
 if __name__ == '__main__':
     if not main(sys.argv[1:]):
         sys.exit(1)
-

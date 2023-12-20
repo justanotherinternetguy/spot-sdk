@@ -25,53 +25,9 @@ from bosdyn.client.manipulation_api_client import ManipulationApiClient
 from bosdyn.client.robot_command import RobotCommandClient, blocking_stand
 from bosdyn.client.robot_state import RobotStateClient
 
-import argparse
-import sys
-import time
-
-from google.protobuf import wrappers_pb2
-
-import bosdyn.client
-import bosdyn.client.estop
-import bosdyn.client.lease
-import bosdyn.client.util
-from bosdyn.api import arm_command_pb2, estop_pb2, robot_command_pb2, synchronized_command_pb2
-from bosdyn.client.estop import EstopClient
-from bosdyn.client.robot_command import (RobotCommandBuilder, RobotCommandClient,
-                                         block_until_arm_arrives, blocking_stand)
-from bosdyn.client.robot_state import RobotStateClient
-from bosdyn.util import duration_to_seconds
-
 g_image_click = None
 g_image_display = None
 
-def make_robot_command(arm_joint_traj):
-    """ Helper function to create a RobotCommand from an ArmJointTrajectory.
-        The returned command will be a SynchronizedCommand with an ArmJointMoveCommand
-        filled out to follow the passed in trajectory. """
-
-    joint_move_command = arm_command_pb2.ArmJointMoveCommand.Request(trajectory=arm_joint_traj)
-    arm_command = arm_command_pb2.ArmCommand.Request(arm_joint_move_command=joint_move_command)
-    sync_arm = synchronized_command_pb2.SynchronizedCommand.Request(arm_command=arm_command)
-    arm_sync_robot_cmd = robot_command_pb2.RobotCommand(synchronized_command=sync_arm)
-    return RobotCommandBuilder.build_synchro_command(arm_sync_robot_cmd)
-
-
-def print_feedback(feedback_resp, logger):
-    """ Helper function to query for ArmJointMove feedback, and print it to the console.
-        Returns the time_to_goal value reported in the feedback """
-    joint_move_feedback = feedback_resp.feedback.synchronized_feedback.arm_command_feedback.arm_joint_move_feedback
-    logger.info(f'  planner_status = {joint_move_feedback.planner_status}')
-    logger.info(
-        f'  time_to_goal = {duration_to_seconds(joint_move_feedback.time_to_goal):.2f} seconds.')
-
-    # Query planned_points to determine target pose of arm
-    logger.info('  planned_points:')
-    for idx, points in enumerate(joint_move_feedback.planned_points):
-        pos = points.position
-        pos_str = f'sh0 = {pos.sh0.value:.3f}, sh1 = {pos.sh1.value:.3f}, el0 = {pos.el0.value:.3f}, el1 = {pos.el1.value:.3f}, wr0 = {pos.wr0.value:.3f}, wr1 = {pos.wr1.value:.3f}'
-        logger.info(f'    {idx}: {pos_str}')
-    return duration_to_seconds(joint_move_feedback.time_to_goal)
 
 def verify_estop(robot):
     """Verify the robot is not estopped"""
@@ -139,7 +95,7 @@ def arm_object_grasp(config):
             dtype = np.uint16
         else:
             dtype = np.uint8
-        img = np.fromstring(image.shot.image.data, dtype=dtype)
+        img = np.frombuffer(image.shot.image.data, dtype=dtype)
         if image.shot.image.format == image_pb2.Image.FORMAT_RAW:
             img = img.reshape(image.shot.image.rows, image.shot.image.cols)
         else:
@@ -175,7 +131,7 @@ def arm_object_grasp(config):
             camera_model=image.source.pinhole)
 
         # Optionally add a grasp constraint.  This lets you tell the robot you only want top-down grasps or side-on grasps.
-        #        add_grasp_constraint(config, grasp, robot_state_client)
+        add_grasp_constraint(config, grasp, robot_state_client)
 
         # Ask the robot to pick up the object
         grasp_request = manipulation_api_pb2.ManipulationApiRequest(pick_object_in_image=grasp)
@@ -205,65 +161,13 @@ def arm_object_grasp(config):
         robot.logger.info('Finished grasp.')
         time.sleep(1.0)
 
-        # Example 1: issue a single point trajectory without a time_since_reference in order to perform
-        # a minimum time joint move to the goal obeying the default acceleration and velocity limits.
-        sh0 = 0
-        sh1 = 0
-        el0 = -0.6
-        el1 = 0
-        wr0 = -0.6
-        wr1 = 0
-        max_vel = wrappers_pb2.DoubleValue(value=3)
-        max_acc = wrappers_pb2.DoubleValue(value=7)
+        carry_cmd = RobotCommandBuilder.arm_carry_command()
+        command_client.robot_command(carry_cmd)
 
-        traj_point = RobotCommandBuilder.create_arm_joint_trajectory_point(
-            sh0, sh1, el0, el1, wr0, wr1)
-
-        arm_joint_traj = arm_command_pb2.ArmJointTrajectory(points=[traj_point],
-                                                            maximum_velocity=max_vel,
-                                                            maximum_acceleration=max_acc)
-        # Make a RobotCommand
-        command = make_robot_command(arm_joint_traj)
-
-        # Send the request
-        cmd_id = command_client.robot_command(command)
-
-        open = RobotCommandBuilder.claw_gripper_open_command()
-        block_until_arm_arrives(command_client, cmd_id, 1.0)
-        o_i = command_client.robot_command(open)
-        """
-        start_time = time.time()
-        end_time = start_time + 5.0
-        
-
-        while time.time() < end_time:
-            cmd_status = command_client.robot_command_feedback_async(cmd_id)
-            robot.logger.info("TEST")
-            time.sleep(0.1)  # wait 100ms before the next checkelse:
-        """
-
-        """
-        # Here we wait till the future is done (Method: Check-until-done).
-        check_until_done_future = robot_state_client.get_robot_state_async()
-        start_time = time.time()
-        end_time = start_time + 0.7
-        x = 0
-        while not check_until_done_future.done():
-            print('Check_until_done_future: not finished yet.')
-            if x == 50:
-                command_client.robot_command_async(open)
-            time.sleep(0.01)
-            x+=1
-        print('Check_until_done succeeded.')
-        """
-
-
-        # Query for feedback to determine how long the goto will take.
-        #        feedback_resp = command_client.robot_command_feedback(cmd_id)
-        #        robot.logger.info("Feedback for Example 1: single point goto")
-        time.sleep(4)
-
-
+        stop = 0
+        while stop != 1:
+            stop = int(input("stop Spot? (0 = no, 1 = stop): "))
+        time.sleep(1.0)
         robot.logger.info('Sitting down and turning off.')
 
         # Power the robot off. By specifying "cut_immediately=False", a safe power off command
