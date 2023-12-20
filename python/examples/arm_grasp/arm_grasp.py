@@ -42,6 +42,9 @@ from bosdyn.client.robot_command import (RobotCommandBuilder, RobotCommandClient
 from bosdyn.client.robot_state import RobotStateClient
 from bosdyn.util import duration_to_seconds
 
+import fiducial_follow
+from fiducial_follow import FollowFiducial
+
 g_image_click = None
 g_image_display = None
 
@@ -82,6 +85,48 @@ def verify_estop(robot):
                         ' estop SDK example, to configure E-Stop.'
         robot.logger.error(error_message)
         raise Exception(error_message)
+
+def throw(robot):
+    command_client = robot.ensure_client(RobotCommandClient.default_service_name)
+
+    sh0 = 0
+    sh1 = -0.6
+    el0 = -0.5
+    el1 = 0
+    wr0 = -0.3
+    wr1 = 0
+    max_vel = wrappers_pb2.DoubleValue(value=8)
+    max_acc = wrappers_pb2.DoubleValue(value=10)
+
+    traj_point = RobotCommandBuilder.create_arm_joint_trajectory_point(sh0, sh1, el0, el1, wr0, wr1)
+
+    arm_joint_traj = arm_command_pb2.ArmJointTrajectory(points=[traj_point],
+                                                        maximum_velocity=max_vel,
+                                                        maximum_acceleration=max_acc)
+# Make a RobotCommand
+    command = make_robot_command(arm_joint_traj) # might be wrong - no async
+    open = RobotCommandBuilder.claw_gripper_open_command()
+# Send the request
+    cmd_id = command_client.robot_command_async(command)
+#time.sleep(0.3)
+#o_i = command_client.robot_command_async(open)
+    start_time = time.time()
+    end_time = start_time + 2.0
+    x = 0
+
+    while time.time() < end_time:
+        robot.logger.info("test " + str(x))
+        if x == 3:
+            o_i = command_client.robot_command_async(open)
+        time.sleep(0.05)
+        x += 1
+
+    time.sleep(1)
+
+    stow = RobotCommandBuilder.arm_stow_command()
+
+    stow_id = command_client.robot_command(stow)
+    time.sleep(1)
 
 
 def arm_object_grasp(config):
@@ -203,53 +248,19 @@ def arm_object_grasp(config):
             time.sleep(0.25)
 
         robot.logger.info('Finished grasp.')
+        # carry
+        carry_command = RobotCommandBuilder.arm_carry_command()
+        carry_command_id = command_client.robot_command(carry_command)
         time.sleep(1.0)
-
-        # Example 1: issue a single point trajectory without a time_since_reference in order to perform
-        # a minimum time joint move to the goal obeying the default acceleration and velocity limits.
-        sh0 = 0
-        sh1 = -0.6
-        el0 = -0.5
-        el1 = 0
-        wr0 = -0.3
-        wr1 = 0
-        max_vel = wrappers_pb2.DoubleValue(value=6)
-        max_acc = wrappers_pb2.DoubleValue(value=9)
-
-        traj_point = RobotCommandBuilder.create_arm_joint_trajectory_point(sh0, sh1, el0, el1, wr0, wr1)
-
-        arm_joint_traj = arm_command_pb2.ArmJointTrajectory(points=[traj_point],
-                                                            maximum_velocity=max_vel,
-                                                            maximum_acceleration=max_acc)
-        # Make a RobotCommand
-        command = make_robot_command(arm_joint_traj) # might be wrong - no async
-        open = RobotCommandBuilder.claw_gripper_open_command()
-        # Send the request
-        cmd_id = command_client.robot_command_async(command)
-        #time.sleep(0.3)
-        #o_i = command_client.robot_command_async(open)
-        start_time = time.time()
-        end_time = start_time + 2.0
-        x = 0
-
-        while time.time() < end_time:
-            robot.logger.info("test " + str(x))
-            if x == 3:
-                o_i = command_client.robot_command_async(open)
-            time.sleep(0.05)
-            x += 1
+        fiducial_follow.main(robot)
+        robot.logger.info("bruh")
 
 
 
-        # Query for feedback to determine how long the goto will take.
-        #        feedback_resp = command_client.robot_command_feedback(cmd_id)
-        #        robot.logger.info("Feedback for Example 1: single point goto")
-        time.sleep(1)
+        # walk - blocking
 
-        stow = RobotCommandBuilder.arm_stow_command()
+        #        throw(robot)
 
-        stow_id = command_client.robot_command(stow)
-        time.sleep(1)
 
         robot.logger.info('Sitting down and turning off.')
 
