@@ -175,7 +175,7 @@ def arm_object_grasp(config):
             camera_model=image.source.pinhole)
 
         # Optionally add a grasp constraint.  This lets you tell the robot you only want top-down grasps or side-on grasps.
-        #        add_grasp_constraint(config, grasp, robot_state_client)
+        add_grasp_constraint(config, grasp, robot_state_client)
 
         # Ask the robot to pick up the object
         grasp_request = manipulation_api_pb2.ManipulationApiRequest(pick_object_in_image=grasp)
@@ -208,61 +208,48 @@ def arm_object_grasp(config):
         # Example 1: issue a single point trajectory without a time_since_reference in order to perform
         # a minimum time joint move to the goal obeying the default acceleration and velocity limits.
         sh0 = 0
-        sh1 = 0
-        el0 = -0.6
+        sh1 = -0.6
+        el0 = -0.5
         el1 = 0
-        wr0 = -0.6
+        wr0 = -0.3
         wr1 = 0
-        max_vel = wrappers_pb2.DoubleValue(value=3)
-        max_acc = wrappers_pb2.DoubleValue(value=7)
+        max_vel = wrappers_pb2.DoubleValue(value=6)
+        max_acc = wrappers_pb2.DoubleValue(value=9)
 
-        traj_point = RobotCommandBuilder.create_arm_joint_trajectory_point(
-            sh0, sh1, el0, el1, wr0, wr1)
+        traj_point = RobotCommandBuilder.create_arm_joint_trajectory_point(sh0, sh1, el0, el1, wr0, wr1)
 
         arm_joint_traj = arm_command_pb2.ArmJointTrajectory(points=[traj_point],
                                                             maximum_velocity=max_vel,
                                                             maximum_acceleration=max_acc)
         # Make a RobotCommand
-        command = make_robot_command(arm_joint_traj)
-
-        # Send the request
-        cmd_id = command_client.robot_command(command)
-
+        command = make_robot_command(arm_joint_traj) # might be wrong - no async
         open = RobotCommandBuilder.claw_gripper_open_command()
-        block_until_arm_arrives(command_client, cmd_id, 1.0)
-        o_i = command_client.robot_command(open)
-        """
+        # Send the request
+        cmd_id = command_client.robot_command_async(command)
+        #time.sleep(0.3)
+        #o_i = command_client.robot_command_async(open)
         start_time = time.time()
-        end_time = start_time + 5.0
-        
+        end_time = start_time + 2.0
+        x = 0
 
         while time.time() < end_time:
-            cmd_status = command_client.robot_command_feedback_async(cmd_id)
-            robot.logger.info("TEST")
-            time.sleep(0.1)  # wait 100ms before the next checkelse:
-        """
+            robot.logger.info("test " + str(x))
+            if x == 3:
+                o_i = command_client.robot_command_async(open)
+            time.sleep(0.05)
+            x += 1
 
-        """
-        # Here we wait till the future is done (Method: Check-until-done).
-        check_until_done_future = robot_state_client.get_robot_state_async()
-        start_time = time.time()
-        end_time = start_time + 0.7
-        x = 0
-        while not check_until_done_future.done():
-            print('Check_until_done_future: not finished yet.')
-            if x == 50:
-                command_client.robot_command_async(open)
-            time.sleep(0.01)
-            x+=1
-        print('Check_until_done succeeded.')
-        """
 
 
         # Query for feedback to determine how long the goto will take.
         #        feedback_resp = command_client.robot_command_feedback(cmd_id)
         #        robot.logger.info("Feedback for Example 1: single point goto")
-        time.sleep(4)
+        time.sleep(1)
 
+        stow = RobotCommandBuilder.arm_stow_command()
+
+        stow_id = command_client.robot_command(stow)
+        time.sleep(1)
 
         robot.logger.info('Sitting down and turning off.')
 
