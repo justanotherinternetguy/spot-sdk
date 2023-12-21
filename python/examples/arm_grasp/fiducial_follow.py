@@ -35,6 +35,44 @@ from bosdyn.client.robot_id import RobotIdClient, version_tuple
 from bosdyn.client.robot_state import RobotStateClient
 from bosdyn.client.world_object import WorldObjectClient
 
+
+import argparse
+import sys
+import time
+
+import cv2
+import numpy as np
+
+import bosdyn.client
+import bosdyn.client.estop
+import bosdyn.client.lease
+import bosdyn.client.util
+from bosdyn.api import estop_pb2, geometry_pb2, image_pb2, manipulation_api_pb2
+from bosdyn.client.estop import EstopClient
+from bosdyn.client.frame_helpers import VISION_FRAME_NAME, get_vision_tform_body, math_helpers
+from bosdyn.client.image import ImageClient
+from bosdyn.client.manipulation_api_client import ManipulationApiClient
+from bosdyn.client.robot_command import RobotCommandClient, blocking_stand
+from bosdyn.client.robot_state import RobotStateClient
+
+import argparse
+import sys
+import time
+
+from google.protobuf import wrappers_pb2
+
+import bosdyn.client
+import bosdyn.client.estop
+import bosdyn.client.lease
+import bosdyn.client.util
+from bosdyn.api import arm_command_pb2, estop_pb2, robot_command_pb2, synchronized_command_pb2
+from bosdyn.client.estop import EstopClient
+from bosdyn.client.robot_command import (RobotCommandBuilder, RobotCommandClient,
+                                         block_until_arm_arrives, blocking_stand)
+from bosdyn.client.robot_state import RobotStateClient
+from bosdyn.util import duration_to_seconds
+
+
 #pylint: disable=no-member
 LOGGER = logging.getLogger()
 
@@ -82,9 +120,9 @@ class FollowFiducial(object):
         self._y_eps = .05
         self._angle_eps = .075
         """
-        self._x_eps = 1
-        self._y_eps = 1
-        self._angle_eps = .075
+        self._x_eps = 0.1
+        self._y_eps = 0.1
+        self._angle_eps = 0.1
 
         # Indicator for if motor power is on.
         self._powered_on = False
@@ -157,6 +195,78 @@ class FollowFiducial(object):
         # World object service was released in spot-sdk version 1.2.0
         return version_tuple(robot_id.software_release.version) >= (1, 2, 0)
 
+
+    def throw(self):
+        robot = self._robot
+        command_client = self._robot.ensure_client(RobotCommandClient.default_service_name)
+
+        sh0 = 0
+        sh1 = 0.8
+        el0 = 0.9
+        el1 = 0
+        wr0 = 0.9
+        wr1 = 0
+        max_vel = wrappers_pb2.DoubleValue(value=4)
+        max_acc = wrappers_pb2.DoubleValue(value=6)
+
+        traj_point = RobotCommandBuilder.create_arm_joint_trajectory_point(sh0, sh1, el0, el1, wr0, wr1)
+
+        arm_joint_traj = arm_command_pb2.ArmJointTrajectory(points=[traj_point],
+                                                            maximum_velocity=max_vel,
+                                                            maximum_acceleration=max_acc)
+        command = self.make_robot_command(arm_joint_traj) # might be wrong - no async
+        open = RobotCommandBuilder.claw_gripper_open_command()
+        cmd_id = command_client.robot_command(command)
+        time.sleep(1)
+
+
+        #############
+        sh0 = 0
+        sh1 = -0.6
+        el0 = -0.5
+        el1 = 0
+        wr0 = -0.3
+        wr1 = 0
+        max_vel = wrappers_pb2.DoubleValue(value=9)
+        max_acc = wrappers_pb2.DoubleValue(value=11)
+
+        traj_point = RobotCommandBuilder.create_arm_joint_trajectory_point(sh0, sh1, el0, el1, wr0, wr1)
+
+        arm_joint_traj = arm_command_pb2.ArmJointTrajectory(points=[traj_point],
+                                                            maximum_velocity=max_vel,
+                                                            maximum_acceleration=max_acc)
+        command = self.make_robot_command(arm_joint_traj) # might be wrong - no async
+        open = RobotCommandBuilder.claw_gripper_open_command()
+        cmd_id = command_client.robot_command_async(command)
+        start_time = time.time()
+        end_time = start_time + 2.0
+        x = 0
+
+        while time.time() < end_time:
+            robot.logger.info("test " + str(x))
+            if x == 3:
+                o_i = command_client.robot_command_async(open)
+            time.sleep(0.05)
+            x += 1
+
+        time.sleep(1)
+
+        stow = RobotCommandBuilder.arm_stow_command()
+
+        stow_id = command_client.robot_command(stow)
+        time.sleep(1)
+
+    def make_robot_command(self, arm_joint_traj):
+        """ Helper function to create a RobotCommand from an ArmJointTrajectory.
+            The returned command will be a SynchronizedCommand with an ArmJointMoveCommand
+            filled out to follow the passed in trajectory. """
+
+        joint_move_command = arm_command_pb2.ArmJointMoveCommand.Request(trajectory=arm_joint_traj)
+        arm_command = arm_command_pb2.ArmCommand.Request(arm_joint_move_command=joint_move_command)
+        sync_arm = synchronized_command_pb2.SynchronizedCommand.Request(arm_command=arm_command)
+        arm_sync_robot_cmd = robot_command_pb2.RobotCommand(synchronized_command=sync_arm)
+        return RobotCommandBuilder.build_synchro_command(arm_sync_robot_cmd)
+
     def start(self):
         """Claim lease of robot and start the fiducial follower."""
         self._robot.time_sync.wait_for_sync()
@@ -198,6 +308,8 @@ class FollowFiducial(object):
             if detected_fiducial:
                 # Go to the tag and stop within a certain distance
                 self.go_to_tag(fiducial_rt_world)
+                self.throw()
+                return
             else:
                 print("No fiducials found")
 
@@ -389,7 +501,7 @@ class FollowFiducial(object):
             x_dist = abs(self._current_tag_world_pose[0] - robot_state.x)
             y_dist = abs(self._current_tag_world_pose[1] - robot_state.y)
             angle = abs(self._angle_desired - robot_angle)
-            print("finally stated :3 " + x_dist + " " + y_dist + " " + angle)
+            print("finally stated :3 " + str(x_dist) + " " + str(y_dist) + " " + str(angle))
             if ((x_dist < self._x_eps) and (y_dist < self._y_eps) and (angle < self._angle_eps)):
                 return True
         return False

@@ -258,15 +258,14 @@ def arm_object_grasp(config):
 
 
         # walk - blocking
-
-        #        throw(robot)
+        # throw(robot)
 
 
         robot.logger.info('Sitting down and turning off.')
 
         # Power the robot off. By specifying "cut_immediately=False", a safe power off command
         # is issued to the robot. This will attempt to sit the robot before powering off.
-        robot.power_off(cut_immediately=False, timeout_sec=20)
+        robot.power_off(cut_immediately=False, timeout_sec=13)
         assert not robot.is_powered_on(), 'Robot power off failed.'
         robot.logger.info('Robot safely powered off.')
 
